@@ -1,0 +1,37 @@
+jenkins:
+  systemMessage: "Automation Alchemy Jenkins controller"
+  numExecutors: 1
+
+  securityRealm:
+    local:
+      allowsSignup: false
+      users:
+        - id: "admin"
+          password: "admin"
+
+  authorizationStrategy:
+    loggedInUsersCanDoAnything:
+      allowAnonymousRead: false
+
+unclassified:
+  location:
+    url: "http://192.168.56.14:8080/"
+
+jobs:
+  - script: >
+      pipelineJob('automation-alchemy-deploy') {
+        description('Builds Docker images, pushes to the local registry, and deploys with Ansible.')
+        definition {
+          cpsScm {
+            scm {
+              git {
+                remote {
+                  url('https://github.com/joalausi/logstest.git')
+                }
+                branch('*/test')
+              }
+            }
+            scriptPath('ci/Jenkinsfile')
+          }
+        }
+      }

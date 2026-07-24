@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Infrastructure Insight</title>
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+  <main class="page">
+    <section class="hero">
+      <p class="eyebrow">DevOps Diagnostic Dashboard</p>
+      <h1>Infrastructure Insight</h1>
+      <p class="subtitle">
+        Load balancer → web servers → backend metrics API
+      </p>
+    </section>
+
+    <section class="status-grid">
+      <article class="card highlight">
+        <span class="label">Responding web server</span>
+        <strong id="web-server">Loading...</strong>
+      </article>
+
+      <article class="card">
+        <span class="label">Backend server</span>
+        <strong id="backend-server">Loading...</strong>
+      </article>
+
+      <article class="card">
+        <span class="label">Request count</span>
+        <strong id="request-count">Loading...</strong>
+      </article>
+
+      <article class="card">
+        <span class="label">Backend uptime</span>
+        <strong id="uptime">Loading...</strong>
+      </article>
+    </section>
+
+    <section class="details card">
+      <h2>Backend metrics</h2>
+      <dl>
+        <div><dt>Container hostname</dt><dd id="container-hostname">-</dd></div>
+        <div><dt>OS</dt><dd id="os">-</dd></div>
+        <div><dt>CPU</dt><dd id="cpu">-</dd></div>
+        <div><dt>CPU cores</dt><dd id="cpu-cores">-</dd></div>
+        <div><dt>Total memory</dt><dd id="memory-total">-</dd></div>
+        <div><dt>Free memory</dt><dd id="memory-free">-</dd></div>
+        <div><dt>Timestamp</dt><dd id="timestamp">-</dd></div>
+      </dl>
+    </section>
+
+    <section class="card">
+      <h2>Raw response</h2>
+      <pre id="raw">Loading...</pre>
+    </section>
+  </main>
+
+  <script src="/app.js"></script>
+</body>
+</html>

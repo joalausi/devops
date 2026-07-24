@@ -1,0 +1,6 @@
+---
+- name: Bootstrap devops user before SSH hardening
+  hosts: all
+  become: true
+  roles:
+    - bootstrap_devops

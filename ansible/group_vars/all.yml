@@ -1,0 +1,65 @@
+---
+project_name: sherlock-logs
+
+private_network:
+  lb_01: "192.168.56.10"
+  web_01: "192.168.56.11"
+  web_02: "192.168.56.12"
+  app_01: "192.168.56.13"
+  ci_01: "192.168.56.14"
+  monitoring_01: "192.168.56.15"
+
+app_ports:
+  frontend: 8080
+  backend: 3000
+  loadbalancer: 80
+  jenkins: 8080
+  registry: 5000
+  node_exporter: 9100
+  cadvisor: 8081
+  prometheus: 9090
+  alertmanager: 9093
+  grafana: 3000
+  elasticsearch: 9200
+  logstash_beats: 5044
+  kibana: 5601
+  elasticsearch_exporter: 9114
+
+base_packages:
+  - curl
+  - git
+  - vim
+  - nano
+  - ufw
+  - ca-certificates
+  - gnupg
+  - lsb-release
+  - net-tools
+  - htop
+
+docker_registry:
+  host: "192.168.56.14"
+  port: 5000
+
+image_tag: latest
+
+images:
+  backend: "192.168.56.14:5000/automation-backend"
+  frontend: "192.168.56.14:5000/automation-frontend"
+
+containers:
+  backend: "automation-backend"
+  frontend: "automation-frontend"
+
+monitoring_root: /opt/sherlock-logs
+monitoring_docker_subnet: "172.30.0.0/24"
+prometheus_retention: 7d
+cadvisor_version: "v0.57.0"
+
+# Optional external notification receiver used by Alertmanager.
+discord_alert_webhook_url: "{{ lookup('env', 'DISCORD_ALERT_WEBHOOK_URL') | default('', true) }}"
+
+devops_user: devops
+devops_password: "{{ lookup('env', 'DEVOPS_PASSWORD') | default('devops', true) }}"
+ansible_become_password: "{{ devops_password }}"
+secure_umask: "027"

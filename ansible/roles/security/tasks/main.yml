@@ -1,0 +1,98 @@
+---
+- name: Allow SSH before enabling firewall
+  community.general.ufw:
+    rule: allow
+    port: "22"
+    proto: tcp
+
+- name: Allow HTTP on load balancer
+  community.general.ufw:
+    rule: allow
+    port: "{{ app_ports.loadbalancer }}"
+    proto: tcp
+  when: inventory_hostname in groups["loadbalancer"]
+
+- name: Allow Jenkins on CI/CD server
+  community.general.ufw:
+    rule: allow
+    port: "{{ app_ports.jenkins }}"
+    proto: tcp
+  when: inventory_hostname in groups["cicd"]
+
+- name: Allow Docker registry on CI/CD server
+  community.general.ufw:
+    rule: allow
+    port: "{{ app_ports.registry }}"
+    proto: tcp
+  when: inventory_hostname in groups["cicd"]
+
+- name: Allow frontend only from load balancer
+  community.general.ufw:
+    rule: allow
+    port: "{{ app_ports.frontend }}"
+    proto: tcp
+    from_ip: "{{ private_network.lb_01 }}"
+  when: inventory_hostname in groups["web"]
+
+- name: Allow backend from frontend servers
+  community.general.ufw:
+    rule: allow
+    port: "{{ app_ports.backend }}"
+    proto: tcp
+    from_ip: "{{ item }}"
+  loop:
+    - "{{ private_network.web_01 }}"
+    - "{{ private_network.web_02 }}"
+  when: inventory_hostname in groups["app"]
+
+- name: Allow Prometheus to scrape Node Exporter
+  community.general.ufw:
+    rule: allow
+    port: "{{ app_ports.node_exporter }}"
+    proto: tcp
+    from_ip: "{{ private_network.monitoring_01 }}"
+  when: inventory_hostname in groups["observed_hosts"]
+
+- name: Allow Prometheus to scrape cAdvisor
+  community.general.ufw:
+    rule: allow
+    port: "{{ app_ports.cadvisor }}"
+    proto: tcp
+    from_ip: "{{ private_network.monitoring_01 }}"
+  when: inventory_hostname in groups["docker_hosts"]
+
+- name: Allow Prometheus to scrape application metrics
+  community.general.ufw:
+    rule: allow
+    port: "{{ app_ports.backend }}"
+    proto: tcp
+    from_ip: "{{ private_network.monitoring_01 }}"
+  when: inventory_hostname in groups["app"]
+
+- name: Allow Filebeat traffic to Logstash
+  community.general.ufw:
+    rule: allow
+    port: "{{ app_ports.logstash_beats }}"
+    proto: tcp
+    from_ip: "192.168.56.0/24"
+  when: inventory_hostname in groups["monitoring"]
+
+- name: Expose monitoring user interfaces on host-only network
+  community.general.ufw:
+    rule: allow
+    port: "{{ item }}"
+    proto: tcp
+    from_ip: "192.168.56.0/24"
+  loop:
+    - "{{ app_ports.prometheus }}"
+    - "{{ app_ports.alertmanager }}"
+    - "{{ app_ports.grafana }}"
+    - "{{ app_ports.elasticsearch }}"
+    - "{{ app_ports.kibana }}"
+    - "{{ app_ports.elasticsearch_exporter }}"
+  when: inventory_hostname in groups["monitoring"]
+
+- name: Enable UFW
+  community.general.ufw:
+    state: enabled
+    policy: deny

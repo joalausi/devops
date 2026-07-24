@@ -1,0 +1,45 @@
+---
+- name: Pull backend image
+  ansible.builtin.command: docker pull {{ images.backend }}:{{ image_tag }}
+  register: backend_image_pull
+  changed_when: true
+  until: backend_image_pull.rc == 0
+  retries: 5
+  delay: 10
+
+- name: Remove old backend container if exists
+  ansible.builtin.shell: docker rm -f {{ containers.backend }} || true
+  changed_when: true
+
+- name: Run backend container
+  ansible.builtin.command: >
+    docker run -d
+    --name {{ containers.backend }}
+    --restart unless-stopped
+    -p {{ app_ports.backend }}:3000
+    -e PORT=3000
+    -e BACKEND_SERVER_NAME={{ inventory_hostname }}
+    {{ images.backend }}:{{ image_tag }}
+  changed_when: true
+
+- name: Wait for backend health endpoint
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:{{ app_ports.backend }}/health"
+    method: GET
+    status_code: 200
+  register: backend_health
+  retries: 10
+  delay: 2
+  until: backend_health.status == 200
+
+- name: Check backend metrics endpoint
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:{{ app_ports.backend }}/metrics"
+    method: GET
+    status_code: 200
+    return_content: true
+  register: backend_metrics
+
+- name: Show backend metrics
+  ansible.builtin.debug:
+    msg: "{{ backend_metrics.content }}"

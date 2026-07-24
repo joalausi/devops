@@ -1,0 +1,95 @@
+---
+- name: Install Node Exporter
+  ansible.builtin.apt:
+    name: prometheus-node-exporter
+    state: present
+    update_cache: true
+
+- name: Enable Node Exporter
+  ansible.builtin.service:
+    name: prometheus-node-exporter
+    state: started
+    enabled: true
+
+- name: Download Filebeat package
+  ansible.builtin.get_url:
+    url: https://artifacts.elastic.co/downloads/beats/filebeat/filebeat-8.19.0-amd64.deb
+    dest: /tmp/filebeat-8.19.0-amd64.deb
+    mode: "0644"
+
+- name: Install Filebeat package
+  ansible.builtin.apt:
+    deb: /tmp/filebeat-8.19.0-amd64.deb
+    state: present
+
+- name: Configure Filebeat
+  ansible.builtin.copy:
+    dest: /etc/filebeat/filebeat.yml
+    owner: root
+    group: root
+    mode: "0600"
+    content: |
+      filebeat.inputs:
+        - type: filestream
+          id: system-logs
+          enabled: true
+          paths:
+            - /var/log/syslog
+            - /var/log/auth.log
+            - /var/log/kern.log
+          fields:
+            log_category: system
+            vm_name: {{ inventory_hostname }}
+          fields_under_root: true
+
+        - type: filestream
+          id: docker-json-logs
+          enabled: {{ 'true' if inventory_hostname in groups['docker_hosts'] else 'false' }}
+          parsers:
+            - container: ~
+          paths:
+            - /var/lib/docker/containers/*/*.log
+          fields:
+            log_category: docker
+            vm_name: {{ inventory_hostname }}
+          fields_under_root: true
+
+      processors:
+        - add_host_metadata: ~
+        - decode_json_fields:
+            fields: ["message"]
+            target: "application"
+            overwrite_keys: true
+            add_error_key: true
+
+      output.logstash:
+        hosts: ["{{ private_network.monitoring_01 }}:{{ app_ports.logstash_beats }}"]
+
+- name: Enable and restart Filebeat
+  ansible.builtin.service:
+    name: filebeat
+    state: restarted
+    enabled: true
+
+- name: Remove previous cAdvisor container when present
+  ansible.builtin.shell: docker rm -f cadvisor || true
+  changed_when: false
+  when: inventory_hostname in groups['docker_hosts']
+
+- name: Run cAdvisor on Docker hosts
+  ansible.builtin.command: >
+    docker run -d
+    --name cadvisor
+    --restart unless-stopped
+    --privileged
+    --device=/dev/kmsg
+    -p {{ app_ports.cadvisor }}:8080
+    --volume=/:/rootfs:ro
+    --volume=/var/run:/var/run:ro
+    --volume=/sys:/sys:ro
+    --volume=/var/lib/docker/:/var/lib/docker:ro
+    --volume=/dev/disk/:/dev/disk:ro
+    ghcr.io/google/cadvisor:{{ cadvisor_version }}
+    --disable_metrics=disk
+  changed_when: true
+  when: inventory_hostname in groups['docker_hosts']

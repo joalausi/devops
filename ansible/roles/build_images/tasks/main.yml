@@ -1,0 +1,84 @@
+---
+- name: Create build workspace
+  ansible.builtin.file:
+    path: /opt/automation-alchemy/build
+    state: directory
+    owner: vagrant
+    group: vagrant
+    mode: "0755"
+
+- name: Copy backend source to CI server
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../app/backend/"
+    dest: /opt/automation-alchemy/build/backend/
+    owner: vagrant
+    group: vagrant
+    mode: preserve
+
+- name: Copy frontend source to CI server
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../app/frontend/"
+    dest: /opt/automation-alchemy/build/frontend/
+    owner: vagrant
+    group: vagrant
+    mode: preserve
+
+- name: Pull backend base image
+  ansible.builtin.command: docker pull node:20-alpine
+  register: backend_base_pull
+  changed_when: "'Downloaded newer image' in backend_base_pull.stdout or 'Pull complete' in backend_base_pull.stdout"
+  until: backend_base_pull.rc == 0
+  retries: 5
+  delay: 20
+
+- name: Pull frontend base image
+  ansible.builtin.command: docker pull nginx:1.27-alpine
+  register: frontend_base_pull
+  changed_when: "'Downloaded newer image' in frontend_base_pull.stdout or 'Pull complete' in frontend_base_pull.stdout"
+  until: frontend_base_pull.rc == 0
+  retries: 5
+  delay: 20
+
+- name: Build backend image
+  ansible.builtin.command: >
+    docker build
+    -t {{ images.backend }}:{{ image_tag }}
+    /opt/automation-alchemy/build/backend
+  register: backend_build
+  changed_when: true
+  until: backend_build.rc == 0
+  retries: 3
+  delay: 20
+
+- name: Build frontend image
+  ansible.builtin.command: >
+    docker build
+    -t {{ images.frontend }}:{{ image_tag }}
+    /opt/automation-alchemy/build/frontend
+  register: frontend_build
+  changed_when: true
+  until: frontend_build.rc == 0
+  retries: 3
+  delay: 20
+
+- name: Push backend image to local registry
+  ansible.builtin.command: docker push {{ images.backend }}:{{ image_tag }}
+  register: backend_push
+  changed_when: true
+  until: backend_push.rc == 0
+  retries: 3
+  delay: 10
+
+- name: Push frontend image to local registry
+  ansible.builtin.command: docker push {{ images.frontend }}:{{ image_tag }}
+  register: frontend_push
+  changed_when: true
+  until: frontend_push.rc == 0
+  retries: 3
+  delay: 10
+
+- name: Show pushed images
+  ansible.builtin.debug:
+    msg:
+      - "{{ images.backend }}:{{ image_tag }}"
+      - "{{ images.frontend }}:{{ image_tag }}"

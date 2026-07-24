@@ -1,0 +1,65 @@
+---
+- name: Wait for apt/dpkg locks to be released
+  ansible.builtin.shell: |
+    while sudo fuser /var/lib/dpkg/lock-frontend >/dev/null 2>&1 \
+       || sudo fuser /var/lib/dpkg/lock >/dev/null 2>&1 \
+       || sudo fuser /var/cache/apt/archives/lock >/dev/null 2>&1 \
+       || sudo fuser /var/lib/apt/lists/lock >/dev/null 2>&1; do
+      echo "Waiting for apt/dpkg lock..."
+      sleep 5
+    done
+  changed_when: false
+
+- name: Finish any interrupted dpkg configuration
+  ansible.builtin.command: dpkg --configure -a
+  environment:
+    DEBIAN_FRONTEND: noninteractive
+  changed_when: false
+
+- name: Repair partially installed packages
+  ansible.builtin.apt:
+    state: fixed
+    lock_timeout: 600
+  environment:
+    DEBIAN_FRONTEND: noninteractive
+
+- name: Update apt cache
+  ansible.builtin.apt:
+    update_cache: true
+    cache_valid_time: 3600
+    lock_timeout: 600
+  environment:
+    DEBIAN_FRONTEND: noninteractive
+
+- name: Upgrade installed packages when enabled
+  ansible.builtin.apt:
+    upgrade: dist
+    autoremove: true
+    lock_timeout: 600
+  environment:
+    DEBIAN_FRONTEND: noninteractive
+  when: common_upgrade_packages | default(false) | bool
+
+- name: Install base packages
+  ansible.builtin.apt:
+    name: "{{ base_packages }}"
+    state: present
+    lock_timeout: 600
+  environment:
+    DEBIAN_FRONTEND: noninteractive
+
+- name: Configure hosts file for private network
+  ansible.builtin.blockinfile:
+    path: /etc/hosts
+    marker: "# {mark} SHERLOCK LOGS HOSTS"
+    block: |
+      {{ private_network.lb_01 }} lb-01
+      {{ private_network.web_01 }} web-01
+      {{ private_network.web_02 }} web-02
+      {{ private_network.app_01 }} app-01
+      {{ private_network.ci_01 }} ci-01
+      {{ private_network.monitoring_01 }} monitoring-01
+
+- name: Set timezone to Europe/Helsinki
+  ansible.builtin.timezone:
+    name: Europe/Helsinki

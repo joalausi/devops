@@ -1,0 +1,117 @@
+---
+- name: Create Jenkins config directory
+  ansible.builtin.file:
+    path: /opt/automation-alchemy/jenkins
+    state: directory
+    owner: vagrant
+    group: vagrant
+    mode: "0755"
+
+- name: Create Jenkins SSH key directory
+  ansible.builtin.file:
+    path: /opt/automation-alchemy/ssh-keys
+    state: directory
+    owner: root
+    group: root
+    mode: "0700"
+
+- name: Copy Vagrant SSH keys to CI server for Jenkins deploy
+  ansible.builtin.copy:
+    src: "{{ lookup('env', 'HOME') }}/.ssh/automation-alchemy/{{ item }}"
+    dest: "/opt/automation-alchemy/ssh-keys/{{ item }}"
+    owner: root
+    group: root
+    mode: "0600"
+  loop:
+    - lb-01
+    - web-01
+    - web-02
+    - app-01
+    - ci-01
+    - monitoring-01
+
+- name: Copy Jenkins Dockerfile
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../ci/jenkins/Dockerfile"
+    dest: /opt/automation-alchemy/jenkins/Dockerfile
+    owner: vagrant
+    group: vagrant
+    mode: "0644"
+
+- name: Copy Jenkins plugins list
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../ci/jenkins/plugins.txt"
+    dest: /opt/automation-alchemy/jenkins/plugins.txt
+    owner: vagrant
+    group: vagrant
+    mode: "0644"
+
+- name: Copy Jenkins Configuration as Code file
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../ci/jenkins/casc.yaml"
+    dest: /opt/automation-alchemy/jenkins/casc.yaml
+    owner: vagrant
+    group: vagrant
+    mode: "0644"
+
+- name: Create Jenkins environment file
+  ansible.builtin.copy:
+    dest: /opt/automation-alchemy/jenkins/jenkins.env
+    owner: root
+    group: root
+    mode: "0600"
+    content: |
+      DISCORD_REVIEW_WEBHOOK_URL={{ lookup('env', 'DISCORD_REVIEW_WEBHOOK_URL') | default('', true) }}
+  no_log: true
+
+- name: Pull Jenkins base image
+  ansible.builtin.command: docker pull jenkins/jenkins:lts-jdk21
+  register: jenkins_base_pull
+  changed_when: "'Downloaded newer image' in jenkins_base_pull.stdout or 'Pull complete' in jenkins_base_pull.stdout"
+  until: jenkins_base_pull.rc == 0
+  retries: 5
+  delay: 20
+
+- name: Build custom Jenkins image
+  ansible.builtin.command: docker build -t automation-jenkins:latest /opt/automation-alchemy/jenkins
+  register: jenkins_build
+  changed_when: true
+  until: jenkins_build.rc == 0
+  retries: 3
+  delay: 30
+
+- name: Remove old Jenkins container if exists
+  ansible.builtin.shell: docker rm -f automation-jenkins || true
+  changed_when: true
+
+- name: Run Jenkins container
+  ansible.builtin.command: >
+    docker run -d
+    --name automation-jenkins
+    --restart unless-stopped
+    --user root
+    -p {{ app_ports.jenkins }}:8080
+    -p 50000:50000
+    --env-file /opt/automation-alchemy/jenkins/jenkins.env
+    -e JAVA_OPTS=-Djenkins.install.runSetupWizard=false
+    -e CASC_JENKINS_CONFIG=/var/jenkins_home/casc.yaml
+    -v jenkins_home:/var/jenkins_home
+    -v /opt/automation-alchemy/jenkins/casc.yaml:/var/jenkins_home/casc.yaml:ro
+    -v /opt/automation-alchemy/ssh-keys:/opt/automation-alchemy/ssh-keys:ro
+    -v /var/run/docker.sock:/var/run/docker.sock
+    automation-jenkins:latest
+  changed_when: true
+
+- name: Wait for Jenkins HTTP endpoint
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:{{ app_ports.jenkins }}/login"
+    method: GET
+    status_code: 200
+  register: jenkins_health
+  retries: 30
+  delay: 5
+  until: jenkins_health.status == 200
+
+- name: Show Jenkins URL
+  ansible.builtin.debug:
+    msg: "Jenkins is available at http://192.168.56.14:{{ app_ports.jenkins }} login admin/admin"

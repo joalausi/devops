@@ -1,0 +1,17 @@
+{
+  "id": null,
+  "uid": "sherlock-docker",
+  "title": "Docker Containers",
+  "tags": ["sherlock-logs", "docker"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "15s",
+  "time": {"from": "now-1h", "to": "now"},
+  "panels": [
+    {"type": "stat", "title": "Running containers", "id": 1, "gridPos": {"h": 6, "w": 8, "x": 0, "y": 0}, "datasource": {"type": "prometheus", "uid": "prometheus"}, "targets": [{"expr": "count(container_last_seen{name!=\"\"})", "legendFormat": "containers"}]},
+    {"type": "timeseries", "title": "Container CPU usage", "id": 2, "gridPos": {"h": 8, "w": 12, "x": 0, "y": 6}, "datasource": {"type": "prometheus", "uid": "prometheus"}, "targets": [{"expr": "sum by(instance,name) (rate(container_cpu_usage_seconds_total{name!=\"\"}[5m])) * 100", "legendFormat": "{{instance}} {{name}}"}], "fieldConfig": {"defaults": {"unit": "percent"}}},
+    {"type": "timeseries", "title": "Container memory usage", "id": 3, "gridPos": {"h": 8, "w": 12, "x": 12, "y": 6}, "datasource": {"type": "prometheus", "uid": "prometheus"}, "targets": [{"expr": "container_memory_working_set_bytes{name!=\"\"}", "legendFormat": "{{instance}} {{name}}"}], "fieldConfig": {"defaults": {"unit": "bytes"}}},
+    {"type": "table", "title": "Container restart/start changes (15m)", "id": 4, "gridPos": {"h": 8, "w": 24, "x": 0, "y": 14}, "datasource": {"type": "prometheus", "uid": "prometheus"}, "targets": [{"expr": "changes(container_start_time_seconds{name!=\"\"}[15m])", "legendFormat": "{{instance}} {{name}}", "instant": true}]}
+  ]
+}

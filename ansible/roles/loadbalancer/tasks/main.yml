@@ -1,0 +1,38 @@
+---
+- name: Install nginx
+  ansible.builtin.apt:
+    name: nginx
+    state: present
+    update_cache: true
+
+- name: Deploy load balancer config
+  ansible.builtin.template:
+    src: nginx-lb.conf.j2
+    dest: /etc/nginx/sites-available/default
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart nginx
+
+- name: Validate nginx config
+  ansible.builtin.command: nginx -t
+  changed_when: false
+
+- name: Ensure nginx is enabled and running
+  ansible.builtin.service:
+    name: nginx
+    state: started
+    enabled: true
+
+- name: Flush nginx restart handler
+  ansible.builtin.meta: flush_handlers
+
+- name: Check load balancer endpoint
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:{{ app_ports.loadbalancer }}/"
+    method: GET
+    status_code: 200
+  register: lb_health
+  retries: 10
+  delay: 2
+  until: lb_health.status == 200

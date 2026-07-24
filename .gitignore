@@ -1,0 +1,4 @@
+.vagrant/
+.ssh/devops_key
+.env
+*.env

@@ -1,0 +1,50 @@
+---
+- name: Pull Docker registry image
+  ansible.builtin.command: docker pull registry:2
+  register: registry_pull
+  changed_when: "'Downloaded newer image' in registry_pull.stdout or 'Pull complete' in registry_pull.stdout"
+  until: registry_pull.rc == 0
+  retries: 5
+  delay: 20
+
+- name: Check if registry container exists
+  ansible.builtin.command: docker inspect registry
+  register: registry_container
+  failed_when: false
+  changed_when: false
+
+- name: Run Docker registry container
+  ansible.builtin.command: >
+    docker run -d
+    --name registry
+    --restart unless-stopped
+    -p {{ docker_registry.port }}:5000
+    registry:2
+  when: registry_container.rc != 0
+
+- name: Ensure registry container is started
+  ansible.builtin.command: docker start registry
+  register: registry_start
+  changed_when: "'registry' in registry_start.stdout"
+  when: registry_container.rc == 0
+
+- name: Wait for registry API
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:{{ docker_registry.port }}/v2/"
+    method: GET
+    status_code: 200
+  register: registry_health
+  retries: 10
+  delay: 2
+  until: registry_health.status == 200
+
+- name: Show registry catalog
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:{{ docker_registry.port }}/v2/_catalog"
+    method: GET
+    return_content: true
+  register: registry_catalog
+
+- name: Print registry catalog
+  ansible.builtin.debug:
+    msg: "{{ registry_catalog.content }}"

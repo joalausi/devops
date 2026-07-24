@@ -1,0 +1,150 @@
+---
+- name: Configure Elasticsearch virtual memory requirement
+  ansible.builtin.copy:
+    dest: /etc/sysctl.d/99-sherlock-logs.conf
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      vm.max_map_count=262144
+
+- name: Apply Elasticsearch virtual memory requirement
+  ansible.builtin.command: sysctl --system
+  changed_when: true
+
+- name: Create Sherlock Logs directory
+  ansible.builtin.file:
+    path: "{{ monitoring_root }}"
+    state: directory
+    owner: devops
+    group: devops
+    mode: "0755"
+
+- name: Copy monitoring stack configuration
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../monitoring/"
+    dest: "{{ monitoring_root }}/"
+    owner: devops
+    group: devops
+    mode: preserve
+
+- name: Find monitoring configuration directories
+  ansible.builtin.find:
+    paths: "{{ monitoring_root }}"
+    file_type: directory
+    recurse: true
+  register: monitoring_config_directories
+
+- name: Make monitoring configuration directories traversable by containers
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    owner: devops
+    group: devops
+    mode: "0755"
+  loop: "{{ monitoring_config_directories.files }}"
+  loop_control:
+    label: "{{ item.path }}"
+
+- name: Find monitoring configuration files
+  ansible.builtin.find:
+    paths: "{{ monitoring_root }}"
+    file_type: file
+    recurse: true
+  register: monitoring_config_files
+
+- name: Make monitoring configuration files readable by containers
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    owner: devops
+    group: devops
+    mode: "0644"
+  loop: "{{ monitoring_config_files.files }}"
+  loop_control:
+    label: "{{ item.path }}"
+
+- name: Allow Prometheus container network to scrape host Node Exporter
+  community.general.ufw:
+    rule: allow
+    port: "{{ app_ports.node_exporter }}"
+    proto: tcp
+    from_ip: "{{ monitoring_docker_subnet }}"
+
+- name: Validate monitoring Compose configuration
+  ansible.builtin.command:
+    cmd: docker compose config
+    chdir: "{{ monitoring_root }}"
+  changed_when: false
+
+- name: Pull monitoring images
+  ansible.builtin.command:
+    cmd: docker compose pull
+    chdir: "{{ monitoring_root }}"
+  register: monitoring_pull
+  changed_when: true
+  retries: 3
+  delay: 20
+  until: monitoring_pull.rc == 0
+
+- name: Start monitoring and logging stack
+  ansible.builtin.command:
+    cmd: docker compose up -d --remove-orphans
+    chdir: "{{ monitoring_root }}"
+  changed_when: true
+
+- name: Wait for Prometheus
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:{{ app_ports.prometheus }}/-/ready"
+    status_code: 200
+  register: prometheus_ready
+  retries: 40
+  delay: 5
+  until: prometheus_ready.status == 200
+
+- name: Wait for Elasticsearch
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:{{ app_ports.elasticsearch }}/_cluster/health?wait_for_status=yellow"
+    status_code: 200
+  register: elasticsearch_ready
+  retries: 60
+  delay: 5
+  until: elasticsearch_ready.status == 200
+
+- name: Wait for Logstash Beats input
+  ansible.builtin.wait_for:
+    host: 127.0.0.1
+    port: "{{ app_ports.logstash_beats }}"
+    timeout: 300
+
+- name: Wait for Grafana
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:{{ app_ports.grafana }}/api/health"
+    status_code: 200
+  register: grafana_ready
+  retries: 40
+  delay: 5
+  until: grafana_ready.status == 200
+
+- name: Wait for Kibana
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:{{ app_ports.kibana }}/api/status"
+    status_code: 200
+  register: kibana_ready
+  retries: 60
+  delay: 5
+  until: kibana_ready.status == 200
+
+- name: Import Kibana data views, searches and dashboards
+  ansible.builtin.shell: |
+    curl --fail --silent --show-error \
+      -X POST "http://127.0.0.1:{{ app_ports.kibana }}/api/saved_objects/_import?overwrite=true" \
+      -H "kbn-xsrf: true" \
+      --form file=@{{ monitoring_root }}/kibana/saved-objects.ndjson
+  changed_when: true
+
+- name: Display monitoring endpoints
+  ansible.builtin.debug:
+    msg:
+      - "Grafana: http://{{ private_network.monitoring_01 }}:{{ app_ports.grafana }} (admin/sherlock)"
+      - "Prometheus: http://{{ private_network.monitoring_01 }}:{{ app_ports.prometheus }}"
+      - "Alertmanager: http://{{ private_network.monitoring_01 }}:{{ app_ports.alertmanager }}"
+      - "Kibana: http://{{ private_network.monitoring_01 }}:{{ app_ports.kibana }}"

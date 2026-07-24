@@ -1,0 +1,13 @@
+{
+  "name": "sherlock-logs-backend",
+  "version": "2.0.0",
+  "description": "Instrumented backend for Automation Alchemy and Sherlock Logs",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.18.3",
+    "prom-client": "^15.1.3"
+  }
+}

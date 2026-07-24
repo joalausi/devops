@@ -1,0 +1,61 @@
+---
+- name: Validate rollback target image tag
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  tasks:
+    - name: Ensure image_tag is provided
+      ansible.builtin.assert:
+        that:
+          - image_tag is defined
+          - image_tag | string | length > 0
+          - image_tag | string != "latest"
+        fail_msg: "Provide rollback target: make rollback VERSION=<tag>. Example: make rollback VERSION=3"
+
+    - name: Get backend image tags
+      ansible.builtin.uri:
+        url: "http://{{ docker_registry.host }}:{{ docker_registry.port }}/v2/automation-backend/tags/list"
+        method: GET
+        return_content: true
+      register: backend_tags
+
+    - name: Get frontend image tags
+      ansible.builtin.uri:
+        url: "http://{{ docker_registry.host }}:{{ docker_registry.port }}/v2/automation-frontend/tags/list"
+        method: GET
+        return_content: true
+      register: frontend_tags
+
+    - name: Ensure backend rollback tag exists
+      ansible.builtin.assert:
+        that:
+          - image_tag | string in backend_tags.json.tags
+        fail_msg: "Backend image tag {{ image_tag }} does not exist in local registry."
+
+    - name: Ensure frontend rollback tag exists
+      ansible.builtin.assert:
+        that:
+          - image_tag | string in frontend_tags.json.tags
+        fail_msg: "Frontend image tag {{ image_tag }} does not exist in local registry."
+
+    - name: Show rollback target
+      ansible.builtin.debug:
+        msg: "Rolling back application to image tag {{ image_tag }}"
+
+- name: Rollback backend
+  hosts: app
+  become: true
+  roles:
+    - backend
+
+- name: Rollback frontend
+  hosts: web
+  become: true
+  roles:
+    - frontend
+
+- name: Validate load balancer after rollback
+  hosts: loadbalancer
+  become: true
+  roles:
+    - loadbalancer

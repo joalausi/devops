@@ -1,0 +1,69 @@
+groups:
+  - name: sherlock-vm-alerts
+    rules:
+      - alert: VMHighCPU
+        expr: 100 - avg by(instance) (rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100 > 80
+        for: 5m
+        labels: { severity: warning }
+        annotations:
+          summary: "High CPU usage on {{ $labels.instance }}"
+
+      - alert: VMLowDiskSpace
+        expr: node_filesystem_avail_bytes{fstype!~"tmpfs|overlay"} / node_filesystem_size_bytes{fstype!~"tmpfs|overlay"} * 100 < 20
+        for: 2m
+        labels: { severity: critical }
+        annotations:
+          summary: "Disk space below 20% on {{ $labels.instance }}"
+
+      - alert: VMHighMemory
+        expr: (1 - node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes) * 100 > 90
+        for: 5m
+        labels: { severity: warning }
+        annotations:
+          summary: "Memory usage above 90% on {{ $labels.instance }}"
+
+      - alert: VMUnreachable
+        expr: up{job="node"} == 0
+        for: 1m
+        labels: { severity: critical }
+        annotations:
+          summary: "VM exporter unreachable: {{ $labels.instance }}"
+
+  - name: sherlock-container-alerts
+    rules:
+      - alert: ContainerRestartingFrequently
+        expr: changes(container_start_time_seconds{name!=""}[15m]) > 3
+        for: 1m
+        labels: { severity: warning }
+        annotations:
+          summary: "Container restarted more than 3 times in 15 minutes"
+
+      - alert: ContainerHighMemory
+        expr: container_memory_working_set_bytes{name!=""} / container_spec_memory_limit_bytes{name!=""} * 100 > 80
+        for: 5m
+        labels: { severity: warning }
+        annotations:
+          summary: "Container memory exceeds 80% of its limit"
+
+  - name: sherlock-infrastructure-alerts
+    rules:
+      - alert: ElasticsearchClusterNotGreen
+        expr: elasticsearch_cluster_health_status{color="green"} != 1
+        for: 2m
+        labels: { severity: critical }
+        annotations:
+          summary: "Elasticsearch cluster is yellow or red"
+
+      - alert: HighCPUAndLowMemory
+        expr: (100 - avg by(instance) (rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100 > 75) and on(instance) (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes * 100 < 20)
+        for: 5m
+        labels: { severity: critical }
+        annotations:
+          summary: "Combined CPU and memory pressure on {{ $labels.instance }}"
+
+      - alert: ApplicationHighErrorRate
+        expr: sum(rate(http_requests_total{status=~"5.."}[5m])) / clamp_min(sum(rate(http_requests_total[5m])), 0.001) > 0.05
+        for: 3m
+        labels: { severity: warning }
+        annotations:
+          summary: "Application 5xx error rate exceeds 5%"

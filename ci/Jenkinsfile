@@ -1,0 +1,165 @@
+pipeline {
+    agent any
+
+    parameters {
+        string(
+            name: 'ROLLBACK_TAG',
+            defaultValue: '',
+            description: 'Optional existing Docker image tag to redeploy. Leave empty for normal build/deploy.'
+        )
+    }
+
+    environment {
+        REGISTRY = "192.168.56.14:5000"
+        BACKEND_IMAGE = "${REGISTRY}/automation-backend"
+        FRONTEND_IMAGE = "${REGISTRY}/automation-frontend"
+        AA_SSH_KEY_DIR = "/opt/automation-alchemy/ssh-keys"
+    }
+
+    stages {
+        stage('Checkout') {
+            steps {
+                checkout scm
+            }
+        }
+
+        stage('Validate Configuration') {
+            steps {
+                sh '''
+                    python3 -m json.tool monitoring/grafana/dashboards/vm-performance.json >/dev/null
+                    python3 -m json.tool monitoring/grafana/dashboards/docker-containers.json >/dev/null
+                    python3 -m json.tool monitoring/grafana/dashboards/application-performance.json >/dev/null
+                    docker run --rm \
+                      -v "$WORKSPACE/monitoring/prometheus:/etc/prometheus:ro" \
+                      --entrypoint /bin/promtool \
+                      prom/prometheus:v3.5.0 \
+                      check config /etc/prometheus/prometheus.yml
+                    docker run --rm \
+                      -v "$WORKSPACE/monitoring/prometheus:/etc/prometheus:ro" \
+                      --entrypoint /bin/promtool \
+                      prom/prometheus:v3.5.0 \
+                      check rules /etc/prometheus/alerts.yml
+                '''
+            }
+        }
+
+        stage('Resolve Deployment Mode') {
+            steps {
+                script {
+                    def rollbackTag = params.ROLLBACK_TAG?.trim()
+                    if (rollbackTag) {
+                        env.DEPLOY_MODE = "rollback"
+                        env.DEPLOY_TAG = rollbackTag
+                    } else {
+                        env.DEPLOY_MODE = "deploy"
+                        env.DEPLOY_TAG = env.BUILD_NUMBER
+                    }
+                }
+            }
+        }
+
+        stage('Validate Rollback Tag') {
+            when { expression { env.DEPLOY_MODE == "rollback" } }
+            steps {
+                sh '''
+                    python3 - <<'PY'
+import json
+import os
+import sys
+import urllib.request
+
+registry = os.environ["REGISTRY"]
+tag = os.environ["DEPLOY_TAG"]
+for repository in ["automation-backend", "automation-frontend"]:
+    with urllib.request.urlopen(f"http://{registry}/v2/{repository}/tags/list", timeout=10) as response:
+        tags = (json.load(response).get("tags") or [])
+    if tag not in tags:
+        print(f"ERROR: tag {tag!r} not found in {repository}. Available tags: {tags}")
+        sys.exit(1)
+PY
+                '''
+            }
+        }
+
+        stage('Build Images') {
+            when { expression { env.DEPLOY_MODE == "deploy" } }
+            steps {
+                retry(3) {
+                    sh '''
+                        docker build -t ${BACKEND_IMAGE}:${DEPLOY_TAG} app/backend
+                        docker build -t ${FRONTEND_IMAGE}:${DEPLOY_TAG} app/frontend
+                        docker tag ${BACKEND_IMAGE}:${DEPLOY_TAG} ${BACKEND_IMAGE}:latest
+                        docker tag ${FRONTEND_IMAGE}:${DEPLOY_TAG} ${FRONTEND_IMAGE}:latest
+                    '''
+                }
+            }
+        }
+
+        stage('Push Images') {
+            when { expression { env.DEPLOY_MODE == "deploy" } }
+            steps {
+                retry(3) {
+                    sh '''
+                        docker push ${BACKEND_IMAGE}:${DEPLOY_TAG}
+                        docker push ${FRONTEND_IMAGE}:${DEPLOY_TAG}
+                        docker push ${BACKEND_IMAGE}:latest
+                        docker push ${FRONTEND_IMAGE}:latest
+                    '''
+                }
+            }
+        }
+
+        stage('Deploy Application') {
+            steps {
+                retry(2) {
+                    sh '''
+                        ansible-playbook \
+                          -i ansible/inventory.ini \
+                          ansible/deploy.yml \
+                          -e ansible_user=devops \
+                          -e image_tag=${DEPLOY_TAG} \
+                          -e ssh_key_dir=${AA_SSH_KEY_DIR}
+                    '''
+                }
+            }
+        }
+
+        stage('Deploy Observability') {
+            steps {
+                retry(2) {
+                    sh '''
+                        ansible-playbook \
+                          -i ansible/inventory.ini \
+                          ansible/observability.yml \
+                          -e ansible_user=devops \
+                          -e ssh_key_dir=${AA_SSH_KEY_DIR}
+                    '''
+                }
+            }
+        }
+
+        stage('Healthcheck') {
+            steps {
+                sh 'bash ./scripts/healthcheck.sh'
+                sh 'bash ./scripts/smoke-test-sherlock.sh'
+            }
+        }
+    }
+
+    post {
+        success {
+            script {
+                def mode = env.DEPLOY_MODE == "rollback" ? "Rollback" : "Deployment"
+                def tag = env.DEPLOY_TAG ?: env.BUILD_NUMBER
+                sh "bash ./scripts/notify-discord.sh '${mode} successful: ${env.JOB_NAME} #${env.BUILD_NUMBER}, image tag ${tag}'"
+            }
+        }
+        failure {
+            script {
+                def mode = env.DEPLOY_MODE == "rollback" ? "Rollback" : "Deployment"
+                def tag = env.DEPLOY_TAG ?: env.BUILD_NUMBER
+                sh "bash ./scripts/notify-discord.sh '${mode} failed: ${env.JOB_NAME} #${env.BUILD_NUMBER}, image tag ${tag}'"
+            }
+        }
+    }
+}

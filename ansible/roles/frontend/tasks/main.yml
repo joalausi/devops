@@ -1,0 +1,45 @@
+---
+- name: Pull frontend image
+  ansible.builtin.command: docker pull {{ images.frontend }}:{{ image_tag }}
+  register: frontend_image_pull
+  changed_when: true
+  until: frontend_image_pull.rc == 0
+  retries: 5
+  delay: 10
+
+- name: Remove old frontend container if exists
+  ansible.builtin.shell: docker rm -f {{ containers.frontend }} || true
+  changed_when: true
+
+- name: Run frontend container
+  ansible.builtin.command: >
+    docker run -d
+    --name {{ containers.frontend }}
+    --restart unless-stopped
+    -p {{ app_ports.frontend }}:80
+    -e WEB_SERVER_NAME={{ inventory_hostname }}
+    --add-host app-01:{{ private_network.app_01 }}
+    {{ images.frontend }}:{{ image_tag }}
+  changed_when: true
+
+- name: Wait for frontend
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:{{ app_ports.frontend }}/"
+    method: GET
+    status_code: 200
+  register: frontend_health
+  retries: 10
+  delay: 2
+  until: frontend_health.status == 200
+
+- name: Check frontend API proxy
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:{{ app_ports.frontend }}/api/health"
+    method: GET
+    status_code: 200
+    return_content: true
+  register: frontend_api_health
+
+- name: Show frontend API proxy result
+  ansible.builtin.debug:
+    msg: "{{ frontend_api_health.content }}"

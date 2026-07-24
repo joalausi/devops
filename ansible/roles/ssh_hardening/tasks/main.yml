@@ -1,0 +1,28 @@
+---
+- name: Ensure sshd config directory exists
+  ansible.builtin.file:
+    path: /etc/ssh/sshd_config.d
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Configure SSH hardening
+  ansible.builtin.copy:
+    dest: /etc/ssh/sshd_config.d/99-automation-alchemy.conf
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      # Managed by Ansible
+      PubkeyAuthentication yes
+      PasswordAuthentication no
+      KbdInteractiveAuthentication no
+      ChallengeResponseAuthentication no
+      PermitRootLogin no
+      AllowUsers {{ devops_user }}
+  notify: Restart ssh
+
+- name: Validate sshd configuration
+  ansible.builtin.command: sshd -t
+  changed_when: false

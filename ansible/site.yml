@@ -1,0 +1,66 @@
+---
+- name: Configure all servers
+  hosts: all
+  become: true
+  serial: 1
+  roles:
+    - common
+    - security
+    - ssh_hardening
+
+- name: Configure Docker hosts
+  hosts: docker_hosts
+  become: true
+  serial: 1
+  roles:
+    - docker
+
+- name: Configure local Docker registry
+  hosts: cicd
+  become: true
+  roles:
+    - registry
+
+- name: Configure Jenkins
+  hosts: cicd
+  become: true
+  roles:
+    - jenkins
+
+- name: Build and push application images
+  hosts: cicd
+  become: true
+  roles:
+    - build_images
+
+- name: Deploy backend
+  hosts: app
+  become: true
+  roles:
+    - backend
+
+- name: Deploy frontend
+  hosts: web
+  become: true
+  serial: 1
+  roles:
+    - frontend
+
+- name: Configure load balancer
+  hosts: loadbalancer
+  become: true
+  roles:
+    - loadbalancer
+
+- name: Deploy monitoring and logging stack
+  hosts: monitoring
+  become: true
+  roles:
+    - monitoring_stack
+
+- name: Deploy metrics and log agents
+  hosts: observed_hosts
+  become: true
+  serial: 1
+  roles:
+    - observability_agent

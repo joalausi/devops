@@ -1,0 +1,60 @@
+---
+- name: Ensure devops user exists
+  ansible.builtin.user:
+    name: "{{ devops_user }}"
+    shell: /bin/bash
+    groups: sudo
+    append: true
+    create_home: true
+    password: "{{ devops_password | password_hash('sha512', 'aaalchemy') }}"
+
+- name: Create devops SSH directory
+  ansible.builtin.file:
+    path: "/home/{{ devops_user }}/.ssh"
+    state: directory
+    owner: "{{ devops_user }}"
+    group: "{{ devops_user }}"
+    mode: "0700"
+
+- name: Copy Vagrant authorized keys to devops user
+  ansible.builtin.copy:
+    src: /home/vagrant/.ssh/authorized_keys
+    dest: "/home/{{ devops_user }}/.ssh/authorized_keys"
+    remote_src: true
+    owner: "{{ devops_user }}"
+    group: "{{ devops_user }}"
+    mode: "0600"
+
+- name: Configure password-protected sudo for devops
+  ansible.builtin.copy:
+    dest: /etc/sudoers.d/devops
+    content: "{{ devops_user }} ALL=(ALL:ALL) ALL\n"
+    owner: root
+    group: root
+    mode: "0440"
+    validate: "visudo -cf %s"
+
+- name: Set secure umask in login.defs
+  ansible.builtin.lineinfile:
+    path: /etc/login.defs
+    regexp: "^UMASK"
+    line: "UMASK           {{ secure_umask }}"
+
+- name: Set secure umask globally
+  ansible.builtin.copy:
+    dest: /etc/profile.d/99-secure-umask.sh
+    content: |
+      # Managed by Ansible
+      umask {{ secure_umask }}
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Set secure umask for devops profile
+  ansible.builtin.lineinfile:
+    path: "/home/{{ devops_user }}/.profile"
+    line: "umask {{ secure_umask }}"
+    create: true
+    owner: "{{ devops_user }}"
+    group: "{{ devops_user }}"
+    mode: "0644"
