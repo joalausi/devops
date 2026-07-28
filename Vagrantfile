@@ -13,7 +13,7 @@ Vagrant.configure("2") do |config|
     { name: "web-02",        ip: "192.168.56.12", memory: 640,  cpus: 1 },
     { name: "app-01",        ip: "192.168.56.13", memory: 768,  cpus: 1 },
     { name: "ci-01",         ip: "192.168.56.14", memory: 2048, cpus: 2 },
-    { name: "monitoring-01", ip: "192.168.56.15", memory: 4096, cpus: 2 }
+    { name: "monitoring-01", ip: "192.168.56.15", memory: 5120, cpus: 2 }
   ]
 
   servers.each do |server|

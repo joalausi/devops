@@ -16,6 +16,9 @@ provision:
 	./scripts/provision.sh
 
 observability:
+	@set -a; \
+	if [ -f .env ]; then . ./.env; fi; \
+	set +a; \
 	ansible-playbook -i ansible/inventory.ini ansible/observability.yml -e ansible_user=devops
 
 reload:
@@ -86,4 +89,7 @@ ssh-negative-test:
 	-ssh -o BatchMode=yes -o StrictHostKeyChecking=no vagrant@192.168.56.10 true
 
 discord-test:
+	@set -a; \
+	if [ -f .env ]; then . ./.env; fi; \
+	set +a; \
 	./scripts/notify-discord.sh "Automation Alchemy Discord notification test"

@@ -27,6 +27,7 @@
     owner: devops
     group: devops
     mode: preserve
+  register: monitoring_configuration
 
 - name: Find monitoring configuration directories
   ansible.builtin.find:
@@ -62,6 +63,16 @@
   loop_control:
     label: "{{ item.path }}"
 
+- name: Write monitoring runtime environment
+  ansible.builtin.copy:
+    dest: "{{ monitoring_root }}/.env"
+    owner: root
+    group: root
+    mode: "0600"
+    content: |
+      DISCORD_ALERT_WEBHOOK_URL={{ discord_alert_webhook_url }}
+  no_log: true
+
 - name: Allow Prometheus container network to scrape host Node Exporter
   community.general.ufw:
     rule: allow
@@ -71,7 +82,7 @@
 
 - name: Validate monitoring Compose configuration
   ansible.builtin.command:
-    cmd: docker compose config
+    cmd: docker compose config --quiet
     chdir: "{{ monitoring_root }}"
   changed_when: false
 
@@ -91,6 +102,13 @@
     chdir: "{{ monitoring_root }}"
   changed_when: true
 
+- name: Restart services that consume bind-mounted configuration
+  ansible.builtin.command:
+    cmd: docker compose restart prometheus alertmanager discord-relay grafana logstash
+    chdir: "{{ monitoring_root }}"
+  when: monitoring_configuration.changed
+  changed_when: true
+
 - name: Wait for Prometheus
   ansible.builtin.uri:
     url: "http://127.0.0.1:{{ app_ports.prometheus }}/-/ready"
@@ -102,7 +120,7 @@
 
 - name: Wait for Elasticsearch
   ansible.builtin.uri:
-    url: "http://127.0.0.1:{{ app_ports.elasticsearch }}/_cluster/health?wait_for_status=yellow"
+    url: "http://127.0.0.1:{{ app_ports.elasticsearch }}/_cluster/health?wait_for_status=green&timeout=5s"
     status_code: 200
   register: elasticsearch_ready
   retries: 60
@@ -135,10 +153,20 @@
 
 - name: Import Kibana data views, searches and dashboards
   ansible.builtin.shell: |
-    curl --fail --silent --show-error \
+    response="$(curl --fail --silent --show-error \
       -X POST "http://127.0.0.1:{{ app_ports.kibana }}/api/saved_objects/_import?overwrite=true" \
       -H "kbn-xsrf: true" \
-      --form file=@{{ monitoring_root }}/kibana/saved-objects.ndjson
+      --form file=@{{ monitoring_root }}/kibana/saved-objects.ndjson)"
+    python3 - "$response" <<'PY'
+    import json
+    import sys
+
+    result = json.loads(sys.argv[1])
+    if not result.get("success"):
+        print(json.dumps(result, indent=2))
+        raise SystemExit("Kibana saved-object import reported errors")
+    print(f"Imported {result.get('successCount', 0)} Kibana saved objects")
+    PY
   changed_when: true
 
 - name: Display monitoring endpoints

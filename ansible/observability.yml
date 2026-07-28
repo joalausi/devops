@@ -1,13 +1,17 @@
 ---
-- name: Deploy central monitoring and logging stack
-  hosts: monitoring
-  become: true
-  roles:
-    - monitoring_stack
-
 - name: Deploy or refresh monitoring and logging agents
   hosts: observed_hosts
   become: true
   serial: 1
+  tags:
+    - observability_agents
   roles:
     - observability_agent
+
+- name: Deploy central monitoring and logging stack
+  hosts: monitoring
+  become: true
+  tags:
+    - monitoring_stack
+  roles:
+    - monitoring_stack

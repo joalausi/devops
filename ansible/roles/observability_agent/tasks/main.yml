@@ -44,7 +44,9 @@
 
         - type: filestream
           id: docker-json-logs
-          enabled: {{ 'true' if inventory_hostname in groups['docker_hosts'] else 'false' }}
+          # Do not feed the central stack's own container stdout back into
+          # Logstash. Docker logs from every other Docker host remain enabled.
+          enabled: {{ 'true' if inventory_hostname in groups['docker_hosts'] and inventory_hostname not in groups['monitoring'] else 'false' }}
           parsers:
             - container: ~
           paths:
@@ -75,12 +77,16 @@
   ansible.builtin.shell: docker rm -f cadvisor || true
   changed_when: false
   when: inventory_hostname in groups['docker_hosts']
+  tags:
+    - cadvisor
 
 - name: Run cAdvisor on Docker hosts
   ansible.builtin.command: >
     docker run -d
     --name cadvisor
     --restart unless-stopped
+    --log-opt max-size=10m
+    --log-opt max-file=2
     --privileged
     --device=/dev/kmsg
     -p {{ app_ports.cadvisor }}:8080
@@ -91,5 +97,10 @@
     --volume=/dev/disk/:/dev/disk:ro
     ghcr.io/google/cadvisor:{{ cadvisor_version }}
     --disable_metrics=disk
+    --logtostderr=false
+    --log_file=/dev/null
+    --stderrthreshold=2
   changed_when: true
   when: inventory_hostname in groups['docker_hosts']
+  tags:
+    - cadvisor

@@ -15,6 +15,8 @@ services:
       - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - ./prometheus/alerts.yml:/etc/prometheus/alerts.yml:ro
       - prometheus_data:/prometheus
+    depends_on:
+      - alertmanager
 
   alertmanager:
     image: prom/alertmanager:v0.28.1
@@ -27,6 +29,24 @@ services:
     volumes:
       - ./alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
       - alertmanager_data:/alertmanager
+    depends_on:
+      - discord-relay
+
+  discord-relay:
+    image: node:22-alpine
+    container_name: discord-relay
+    restart: unless-stopped
+    environment:
+      PORT: "8080"
+      DISCORD_WEBHOOK_URL: "${DISCORD_ALERT_WEBHOOK_URL:-}"
+    command: ["node", "/app/server.js"]
+    volumes:
+      - ./notification-relay/server.js:/app/server.js:ro
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8080/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   grafana:
     image: grafana/grafana:12.1.0
@@ -36,21 +56,28 @@ services:
       GF_SECURITY_ADMIN_USER: admin
       GF_SECURITY_ADMIN_PASSWORD: sherlock
       GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_UNIFIED_ALERTING_ENABLED: "true"
     ports:
       - "3000:3000"
     volumes:
       - grafana_data:/var/lib/grafana
       - ./grafana/provisioning:/etc/grafana/provisioning:ro
       - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+    depends_on:
+      - prometheus
+      - alertmanager
 
   elasticsearch:
     image: docker.elastic.co/elasticsearch/elasticsearch:8.19.0
     container_name: elasticsearch
     restart: unless-stopped
     environment:
-      discovery.type: single-node
+      cluster.name: sherlock-logs
+      node.name: elasticsearch-1
+      discovery.seed_hosts: elasticsearch,elasticsearch-2
+      cluster.initial_master_nodes: elasticsearch-1,elasticsearch-2
       xpack.security.enabled: "false"
-      ES_JAVA_OPTS: "-Xms1g -Xmx1g"
+      ES_JAVA_OPTS: "-Xms512m -Xmx512m"
     ports:
       - "9200:9200"
     volumes:
@@ -58,7 +85,25 @@ services:
     deploy:
       resources:
         limits:
-          memory: 2g
+          memory: 1g
+
+  elasticsearch-2:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.19.0
+    container_name: elasticsearch-2
+    restart: unless-stopped
+    environment:
+      cluster.name: sherlock-logs
+      node.name: elasticsearch-2
+      discovery.seed_hosts: elasticsearch,elasticsearch-2
+      cluster.initial_master_nodes: elasticsearch-1,elasticsearch-2
+      xpack.security.enabled: "false"
+      ES_JAVA_OPTS: "-Xms512m -Xmx512m"
+    volumes:
+      - elasticsearch_data_2:/usr/share/elasticsearch/data
+    deploy:
+      resources:
+        limits:
+          memory: 1g
 
   logstash:
     image: docker.elastic.co/logstash/logstash:8.19.0
@@ -72,17 +117,20 @@ services:
       - ./logstash/pipeline:/usr/share/logstash/pipeline:ro
     depends_on:
       - elasticsearch
+      - elasticsearch-2
+      - alertmanager
 
   kibana:
     image: docker.elastic.co/kibana/kibana:8.19.0
     container_name: kibana
     restart: unless-stopped
     environment:
-      ELASTICSEARCH_HOSTS: http://elasticsearch:9200
+      ELASTICSEARCH_HOSTS: '["http://elasticsearch:9200","http://elasticsearch-2:9200"]'
     ports:
       - "5601:5601"
     depends_on:
       - elasticsearch
+      - elasticsearch-2
 
   elasticsearch-exporter:
     image: prometheuscommunity/elasticsearch-exporter:v1.9.0
@@ -94,12 +142,14 @@ services:
       - "9114:9114"
     depends_on:
       - elasticsearch
+      - elasticsearch-2
 
 volumes:
   prometheus_data:
   alertmanager_data:
   grafana_data:
   elasticsearch_data:
+  elasticsearch_data_2:
 
 networks:
   default:

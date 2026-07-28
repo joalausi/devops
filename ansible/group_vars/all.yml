@@ -36,6 +36,7 @@ base_packages:
   - lsb-release
   - net-tools
   - htop
+  - stress-ng
 
 docker_registry:
   host: "192.168.56.14"
@@ -56,8 +57,9 @@ monitoring_docker_subnet: "172.30.0.0/24"
 prometheus_retention: 7d
 cadvisor_version: "v0.57.0"
 
-# Optional external notification receiver used by Alertmanager.
-discord_alert_webhook_url: "{{ lookup('env', 'DISCORD_ALERT_WEBHOOK_URL') | default('', true) }}"
+# Optional external receiver shared by monitoring alerts and CI notifications.
+# Reuse the CI webhook when a dedicated alerting webhook is not supplied.
+discord_alert_webhook_url: "{{ lookup('env', 'DISCORD_ALERT_WEBHOOK_URL') | default(lookup('env', 'DISCORD_REVIEW_WEBHOOK_URL'), true) }}"
 
 devops_user: devops
 devops_password: "{{ lookup('env', 'DEVOPS_PASSWORD') | default('devops', true) }}"

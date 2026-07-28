@@ -52,15 +52,15 @@
   roles:
     - loadbalancer
 
-- name: Deploy monitoring and logging stack
-  hosts: monitoring
-  become: true
-  roles:
-    - monitoring_stack
-
 - name: Deploy metrics and log agents
   hosts: observed_hosts
   become: true
   serial: 1
   roles:
     - observability_agent
+
+- name: Deploy monitoring and logging stack
+  hosts: monitoring
+  become: true
+  roles:
+    - monitoring_stack

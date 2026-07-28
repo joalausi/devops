@@ -17,8 +17,20 @@ check "application Prometheus metrics" "${APP_URL}/prometheus"
 check "Prometheus readiness" "${MONITORING_URL}:9090/-/ready"
 check "Grafana health" "${MONITORING_URL}:3000/api/health"
 check "Alertmanager readiness" "${MONITORING_URL}:9093/-/ready"
-check "Elasticsearch cluster" "${MONITORING_URL}:9200/_cluster/health"
 check "Kibana status" "${MONITORING_URL}:5601/api/status"
+
+CLUSTER_JSON="$(curl --fail --silent --show-error "${MONITORING_URL}:9200/_cluster/health")"
+python3 - "$CLUSTER_JSON" <<'PY'
+import json
+import sys
+
+cluster = json.loads(sys.argv[1])
+if cluster.get("status") != "green":
+    raise SystemExit(f"Elasticsearch cluster is not green: {cluster.get('status')}")
+if cluster.get("number_of_nodes", 0) < 2:
+    raise SystemExit(f"Expected two Elasticsearch nodes, found {cluster.get('number_of_nodes', 0)}")
+print(f"Elasticsearch cluster healthy: {cluster['number_of_nodes']} nodes, status={cluster['status']}")
+PY
 
 TARGETS_JSON="$(curl --fail --silent --show-error "${MONITORING_URL}:9090/api/v1/targets")"
 python3 - "$TARGETS_JSON" <<'PY'
@@ -57,6 +69,26 @@ if missing:
     print("Missing mandatory alerts:", ", ".join(sorted(missing)))
     raise SystemExit(1)
 print(f"Prometheus alert rules loaded: {len(rules)}")
+PY
+
+GRAFANA_RULES_JSON="$(curl --fail --silent --show-error \
+  --user admin:sherlock \
+  "${MONITORING_URL}:3000/api/v1/provisioning/alert-rules")"
+python3 - "$GRAFANA_RULES_JSON" <<'PY'
+import json
+import sys
+
+rules = json.loads(sys.argv[1])
+required = {
+    "grafana-vm-high-cpu",
+    "grafana-vm-high-memory",
+    "grafana-vm-low-disk",
+}
+found = {rule.get("uid") for rule in rules}
+missing = required - found
+if missing:
+    raise SystemExit("Missing Grafana-managed alerts: " + ", ".join(sorted(missing)))
+print(f"Grafana-managed alert rules loaded: {len(rules)}")
 PY
 
 for index in system-logs application-logs docker-logs; do

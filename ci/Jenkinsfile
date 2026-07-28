@@ -29,6 +29,22 @@ pipeline {
                     python3 -m json.tool monitoring/grafana/dashboards/vm-performance.json >/dev/null
                     python3 -m json.tool monitoring/grafana/dashboards/docker-containers.json >/dev/null
                     python3 -m json.tool monitoring/grafana/dashboards/application-performance.json >/dev/null
+                    python3 - <<'PY'
+import json
+from pathlib import Path
+
+for line_number, line in enumerate(Path('monitoring/kibana/saved-objects.ndjson').read_text().splitlines(), 1):
+    try:
+        json.loads(line)
+    except json.JSONDecodeError as error:
+        raise SystemExit(f'Invalid Kibana NDJSON at line {line_number}: {error}')
+PY
+                    /opt/ansible-venv/bin/python - <<'PY'
+from pathlib import Path
+import yaml
+
+yaml.safe_load(Path('monitoring/grafana/provisioning/alerting/alerts.yml').read_text())
+PY
                     docker run --rm \
                       -v "$WORKSPACE/monitoring/prometheus:/etc/prometheus:ro" \
                       --entrypoint /bin/promtool \

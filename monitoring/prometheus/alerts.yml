@@ -9,7 +9,7 @@ groups:
           summary: "High CPU usage on {{ $labels.instance }}"
 
       - alert: VMLowDiskSpace
-        expr: node_filesystem_avail_bytes{fstype!~"tmpfs|overlay"} / node_filesystem_size_bytes{fstype!~"tmpfs|overlay"} * 100 < 20
+        expr: node_filesystem_avail_bytes{mountpoint="/",fstype!~"tmpfs|overlay"} / node_filesystem_size_bytes{mountpoint="/",fstype!~"tmpfs|overlay"} * 100 < 20
         for: 2m
         labels: { severity: critical }
         annotations:
@@ -39,7 +39,7 @@ groups:
           summary: "Container restarted more than 3 times in 15 minutes"
 
       - alert: ContainerHighMemory
-        expr: container_memory_working_set_bytes{name!=""} / container_spec_memory_limit_bytes{name!=""} * 100 > 80
+        expr: (container_memory_working_set_bytes{name!=""} / container_spec_memory_limit_bytes{name!=""} * 100 > 80) and on(instance, id) (container_spec_memory_limit_bytes{name!=""} > 0) and on(instance, id) (container_spec_memory_limit_bytes{name!=""} < 1e15)
         for: 5m
         labels: { severity: warning }
         annotations:
