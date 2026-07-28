@@ -26,9 +26,9 @@ jobs:
             scm {
               git {
                 remote {
-                  url('https://github.com/joalausi/logstest.git')
+                  url('https://github.com/joalausi/devops.git')
                 }
-                branch('*/test')
+                branch('*/main')
               }
             }
             scriptPath('ci/Jenkinsfile')
